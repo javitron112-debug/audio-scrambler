@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Audio Scrambler Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        /* DISEÑO CLARO Y PROFESIONAL */
+        :root {
+            --bg-color: #f0f2f5;
+            --card-bg: #ffffff;
+            --primary: #007bff;
+            --secondary: #6c757d;
+            --success: #28a745;
+            --danger: #dc3545;
+            --text-main: #333333;
+        }
+
+        body {
+            font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background: var(--card-bg);
+            padding: 25px;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        h1 { text-align: center; color: var(--primary); margin-bottom: 20px; font-size: 1.5rem; }
+
+        .status-badge {
+            display: block;
+            text-align: center;
+            padding: 8px;
+            background: #e9ecef;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            margin-bottom: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+        button {
+            padding: 15px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        button:active { filter: brightness(0.9); }
+        button:disabled { background: #ccc !important; cursor: not-allowed; }
+
+        .btn-record { background: var(--danger); color: white; }
+        .btn-stop { background: var(--secondary); color: white; }
+        .btn-action { background: var(--success); color: white; }
+        .btn-download { background: var(--primary); color: white; grid-column: span 2; margin-top: 10px; }
+
+        input[type="file"] { margin: 15px 0; font-size: 14px; width: 100%; }
+
+        .footer { font-size: 0.8rem; text-align: center; color: #777; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🎙️ Audio Scrambler</h1>
+    
+    <div class="status-badge" id="status">Esperando clave...</div>
+
+    <input type="text" id="passphrase" placeholder="Introduce tu Clave Secreta">
+
+    <div class="grid">
+        <button id="btnRecord" class="btn-record">Grabar Voz</button>
+        <button id="btnStop" class="btn-stop" disabled>Detener</button>
+    </div>
+
+    <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+
+    <p style="font-size: 0.9rem; margin-bottom: 5px;">Decodificar archivo recibido:</p>
+    <input type="file" id="fileInput" accept="audio/*">
+
+    <div class="grid">
+        <button id="btnScramble" class="btn-action" disabled>Codificar</button>
+        <button id="btnDescramble" class="btn-action" disabled>Decodificar</button>
+        <button id="btnDownload" class="btn-download" disabled>Descargar Audio (.wav)</button>
+    </div>
+
+    <div class="footer">
+        Esta app funciona solo bajo <b>HTTPS</b>.<br>
+        El audio nunca sale de tu dispositivo.
+    </div>
+</div>
+
+<script>
+    let audioContext;
+    let recordedBuffer = null;
+    let lastProcessedBuffer = null;
+    let mediaRecorder;
+    let audioChunks = [];
+
+    const status = document.getElementById('status');
+    const btnRecord = document.getElementById('btnRecord');
+    const btnStop = document.getElementById('btnStop');
+    const btnScramble = document.getElementById('btnScramble');
+    const btnDescramble = document.getElementById('btnDescramble');
+    const btnDownload = document.getElementById('btnDownload');
+
+    // Inicialización para móviles
+    function initContext() {
+        if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioContext.state === 'suspended') audioContext.resume();
+    }
+
+    // Grabación
+    btnRecord.onclick = async () => {
+        initContext();
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+            mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+            mediaRecorder.onstop = async () => {
+                const blob = new Blob(audioChunks);
+                const arrayBuffer = await blob.arrayBuffer();
+                recordedBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                btnScramble.disabled = false;
+                btnDescramble.disabled = false;
+                status.innerText = "Audio capturado";
+            };
+            mediaRecorder.start();
+            btnRecord.disabled = true;
+            btnStop.disabled = false;
+            status.innerText = "🔴 GRABANDO...";
+        } catch (e) {
+            alert("Error: Activa el permiso de micro y usa HTTPS.");
+        }
+    };
+
+    btnStop.onclick = () => {
+        mediaRecorder.stop();
+        btnRecord.disabled = false;
+        btnStop.disabled = true;
+    };
+
+    // Procesar (Cifrar/Descifrar)
+    function process(isEncrypt) {
+        initContext();
+        const key = document.getElementById('passphrase').value;
+        if (!key) return alert("Escribe una clave");
+
+        let channelData = recordedBuffer.getChannelData(0);
+        let frameSize = 1024;
+        let totalFrames = Math.floor(channelData.length / frameSize);
+        let indices = [...Array(totalFrames).keys()];
+
+        // Generar orden aleatorio basado en la clave
+        let hash = CryptoJS.SHA256(key).toString();
+        for (let i = totalFrames - 1; i > 0; i--) {
+            let j = Math.floor((hash.charCodeAt(i % hash.length) / 255) * (i + 1));
+            [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
+
+        let newBuffer = audioContext.createBuffer(1, recordedBuffer.length, audioContext.sampleRate);
+        let newData = newBuffer.getChannelData(0);
+
+        for (let i = 0; i < totalFrames; i++) {
+            let src = isEncrypt ? i : indices[i];
+            let dst = isEncrypt ? indices[i] : i;
+            for (let j = 0; j < frameSize; j++) {
+                newData[dst * frameSize + j] = channelData[src * frameSize + j];
+            }
+        }
+
+        lastProcessedBuffer = newBuffer;
+        btnDownload.disabled = false;
+        let play = audioContext.createBufferSource();
+        play.buffer = newBuffer;
+        play.connect(audioContext.destination);
+        play.start();
+        status.innerText = isEncrypt ? "Audio Codificado" : "Audio Decodificado";
+    }
+
+    btnScramble.onclick = () => process(true);
+    btnDescramble.onclick = () => process(false);
+
+    document.getElementById('fileInput').onchange = async (e) => {
+        initContext();
+        const file = e.target.files[0];
+        if (!file) return;
+        const arrayBuffer = await file.arrayBuffer();
+        recordedBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        btnScramble.disabled = false;
+        btnDescramble.disabled = false;
+        status.innerText = "Archivo cargado";
+    };
+
+    // Descarga WAV
+    btnDownload.onclick = () => {
+        const wav = bufferToWave(lastProcessedBuffer, lastProcessedBuffer.length);
+        const url = URL.createObjectURL(wav);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "mensaje_secreto.wav";
+        a.click();
+    };
+
+    function bufferToWave(abuffer, len) {
+        let length = len * 2 + 44, buffer = new ArrayBuffer(length), view = new DataView(buffer), pos = 0;
+        const set16 = (d) => { view.setInt16(pos, d, true); pos += 2; };
+        const set32 = (d) => { view.setUint32(pos, d, true); pos += 4; };
+        set32(0x46464952); set32(length - 8); set32(0x45564157); set32(0x20746d66); set32(16);
+        set16(1); set16(1); set32(abuffer.sampleRate); set32(abuffer.sampleRate * 2);
+        set16(2); set16(16); set32(0x61746164); set32(length - pos - 4);
+        let data = abuffer.getChannelData(0);
+        for(let i=0; i<data.length; i++) {
+            let s = Math.max(-1, Math.min(1, data[i]));
+            set16(s < 0 ? s * 0x8000 : s * 0x7FFF);
+        }
+        return new Blob([buffer], {type: "audio/wav"});
+    }
+</script>
+</body>
+</html>
