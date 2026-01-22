@@ -1,0 +1,16 @@
+{
+  "name": "Audio Scrambler Pro",
+  "short_name": "Scrambler",
+  "description": "Comunicación de audio cifrada por desorden temporal",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#f0f2f5",
+  "theme_color": "#007bff",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/565/565547.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
